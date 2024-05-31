@@ -143,12 +143,10 @@ app.get("/user/following/", authenticateToken, async (request, response) => {
   const username = request.username;
 
   const getFollowingUsersQuery = `
-            SELECT 
-                (SELECT username FROM user WHERE user.user_id = follower.following_user_id) AS name
-            FROM 
-                user INNER JOIN follower ON user.user_id = follower.follower_user_id
-            WHERE user.username = '${username}';
-        `;
+        SELECT name
+        FROM follower INNER JOIN user ON follower.following_user_id = user.user_id
+        WHERE follower.follower_user_id = (SELECT user_id FROM user WHERE username = '${username}');
+    `;
   const followingPeople = await database.all(getFollowingUsersQuery);
   response.send(followingPeople);
 });
@@ -158,13 +156,48 @@ app.get("/user/followers/", authenticateToken, async (request, response) => {
   const username = request.username;
   const getFollowersQuery = `
             SELECT 
-                (SELECT user.username FROM user WHERE user_id = follower.follower_user_id) AS name
+                (SELECT user.name FROM user WHERE user_id = follower.follower_user_id) AS name
             FROM
                 user INNER JOIN follower ON user.user_id = follower.following_user_id
             WHERE user.username = '${username}';
         `;
   const followers = await database.all(getFollowersQuery);
   response.send(followers);
+});
+
+// API 6
+app.get("/tweets/:tweetId/", authenticateToken, async (request, response) => {
+  const { username } = request;
+  const tweetId = request.params;
+
+  const checkFollowing = `
+    SELECT *
+    FROM 
+        follower INNER JOIN tweet ON follower.following_user_id = tweet.user_id
+    WHERE 
+        follower_user_id = (SELECT user_id FROM user WHERE username = '${username}') 
+        AND tweet.tweet_id = ${tweetId};
+    `;
+
+  const tweetCheck = await database.get(checkFollowing);
+  if (tweetCheck === undefined) {
+    response.status(401);
+    response.send("Invalid Request");
+  } else {
+    const getTweetsById = `
+            SELECT 
+                tweet,
+                (SELECT COUNT(*) FROM like WHERE tweet_id = ${tweetId}) AS likes,
+                (SELECT COUNT(*) FROM reply WHERE tweet_id = ${tweetId}) AS replies,
+                date_time AS dateTime
+            FROM 
+                tweet
+            WHERE
+                tweet_id = ${tweetId};
+        `;
+    const tweetDetails = await database.all(getTweetsById);
+    response.send(tweetDetails);
+  }
 });
 
 module.exports = app;
